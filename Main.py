@@ -5,7 +5,7 @@ import numpy as np
 #tc.list_com_ports()
 
 #connects to printer via COM port
-ender3 = tc.Ender3("COM6")
+ender3 = tc.Ender3("COM3")
 ender3.connect()
 
 #declares sensing method to use
@@ -28,6 +28,6 @@ calibrationMatrix = np.array([
 calib = tc.Calibrator(printer=ender3, sensor1=FTSensor, sensor2=AD2)
 
 #probe method, will probe the sensor, moving to each point individually
-calib.probe(home_printer=False, record_signal=True, calibration_file_path="calibration_paths/calib_points.csv", 
+calib.probe(home_printer=False, record_signal=False, calibration_file_path="calibration_paths/calib_points.csv", 
                 calibrationMatrix=calibrationMatrix, rate=rate, samples_per_update= samples_per_update, 
                  auto_bias = True)
