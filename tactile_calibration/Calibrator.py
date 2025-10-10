@@ -454,7 +454,7 @@ class Calibrator:
         #declares FT sensor task
         with nidaqmx.Task() as task:
             #opens analog channels for FT sensor
-            task.ai_channels.add_ai_voltage_chan("Dev2/ai0:5")
+            task.ai_channels.add_ai_voltage_chan("Dev1/ai0:5")
             #continously reads FT sensor data at rate
             task.timing.cfg_samp_clk_timing(rate, sample_mode=AcquisitionType.CONTINUOUS)
             win.show()
