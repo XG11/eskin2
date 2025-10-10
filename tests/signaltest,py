@@ -1,0 +1,53 @@
+import pandas as pd
+import numpy as np
+from scipy.signal import hilbert
+import matplotlib.pyplot as plt
+
+# --- Load data ---
+df = pd.read_csv("/Users/jrlin/Downloads/help/results/probewidth/skin0vert15mm4/sensordata/waveform_readings.csv")
+
+# Separate probe numbers and signal data
+probe_numbers = df.iloc[:, 0].to_numpy()
+signal_data = df.iloc[:, 1:].astype(float).to_numpy()
+
+# Subtract first probe's signal from all probes
+signal_minus_first = signal_data - signal_data[0]
+
+# Convert to list of arrays (each array = one probe's waveform)
+signal_list = [signal_minus_first[i] for i in range(signal_minus_first.shape[0])]
+
+# Storage for results
+envelopes = []
+log_compressed = []
+
+for idx, signal in enumerate(signal_list):
+    # Envelope using Hilbert transform
+    analytic_signal = hilbert(signal)
+    envelope = np.abs(analytic_signal)
+
+    # Log compression
+    eps = 1e-10
+    envelope_norm = envelope / np.max(envelope)
+    log_env = 20 * np.log10(envelope_norm + eps)
+
+    envelopes.append(envelope)
+    log_compressed.append(log_env)
+
+    # Optional plotting
+    plt.figure(figsize=(10, 4))
+    plt.plot(signal, label='Original (minus first probe)')
+    plt.plot(envelope, label='Envelope')
+    plt.plot(log_env, label='Log Compressed')
+    plt.title(f"Probe #{probe_numbers[idx]}")
+    plt.legend()
+    plt.show()
+
+# Convert results back to arrays with probe numbers for saving
+envelope_arr = np.column_stack((probe_numbers, np.array(envelopes)))
+log_compressed_arr = np.column_stack((probe_numbers, np.array(log_compressed)))
+
+# Save results
+np.savetxt("/mnt/data/envelopes.csv", envelope_arr, delimiter=",", fmt="%.10f")
+np.savetxt("/mnt/data/log_compressed_envelopes.csv", log_compressed_arr, delimiter=",", fmt="%.10f")
+
+print("Processing complete. Files saved.")
