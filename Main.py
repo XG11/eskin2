@@ -5,12 +5,13 @@ import numpy as np
 #tc.list_com_ports()
 
 #connects to printer via COM port
-ender3 = tc.Ender3("COM3")
+ender3 = tc.Ender3("COM8")
 ender3.connect()
 
 #declares sensing method to use
 FTSensor = tc.FTSensor()
 AD2 = tc.AnalogD2()
+FSR = tc.FSRStreamSensor()
 
 rate = 3000 # Hz
 samples_per_update = 500 # How many samples to read per animation frame
@@ -25,9 +26,9 @@ calibrationMatrix = np.array([
 ])
 
 #declares the calibration object with printer and sensor
-calib = tc.Calibrator(printer=ender3, sensor1=FTSensor, sensor2=AD2)
+calib = tc.Calibrator(printer=ender3, sensor1=FTSensor, sensor2=AD2, sensor3=FSR)
 
 #probe method, will probe the sensor, moving to each point individually
-calib.probe(home_printer=False, record_signal=False, calibration_file_path="calibration_paths/calib_points.csv", 
+calib.probe(home_printer=False, record_signal=True, calibration_file_path="calibration_paths/calib_points.csv", 
                 calibrationMatrix=calibrationMatrix, rate=rate, samples_per_update= samples_per_update, 
                  auto_bias = True)

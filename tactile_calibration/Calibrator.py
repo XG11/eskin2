@@ -16,15 +16,16 @@ from pyqtgraph.Qt import QtWidgets, QtCore
 import pyqtgraph as pg
 import dwf
 from dwfconstants import *
-from scipy.signal import butter, filtfilt, firwin,lfilter
+from scipy.signal import butter, filtfilt, firwin, lfilter
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
 class Calibrator:
-    def __init__(self, printer:Printer, sensor1:Sensor, sensor2:Sensor):
+    def __init__(self, printer:Printer, sensor1:Sensor, sensor2:Sensor, sensor3:Sensor):
         self.printer = printer
         self.FTSensor = sensor1
         self.AD2 = sensor2
+        self.FSRStreamSensor = sensor3
 
         self.printer_connected = False
         self.sensor_connected = False
@@ -41,6 +42,10 @@ class Calibrator:
             self.sensor_name = self.AD2.name
         except:
             self.sensor_name = "AD2"
+        try:
+            self.sensor_name = self.FSRStreamSensor.name
+        except:
+            self.sensor_name = "FSRStreamSensor"
 
     def initialize_printer(self, absolute=True):
         """ Sends gcode to configure and home 3D Printer
@@ -92,7 +97,6 @@ class Calibrator:
         proxy2 = QtWidgets.QGraphicsProxyWidget()
         proxy2.setWidget(unbias_button)
         
-
         plotz = win.addPlot()
         curvez = plotz.plot(pen='g')
         button_row = 1   
@@ -115,6 +119,7 @@ class Calibrator:
         return fir_coeff  
     
     def peak_plotting(self, signal_writer, signal_file, file_name, row_name, voltages = [], threshold = 2):
+        #plots and saves signal data with peak detection
         peak_indices = [i for i, v in enumerate(voltages) if v >= threshold]
         peak_starts = []
         min_spacing = 1000 # samples apart
@@ -176,7 +181,8 @@ class Calibrator:
 
         # Connect to sensor
         if record_signal == True:
-            dwf, hdwf = self.AD2.connect()
+            # dwf, hdwf = self.AD2.connect()
+            self.FSRStreamSensor.connect()
 
         # Send initialization gcode to printer
         if home_printer == True:
@@ -234,23 +240,65 @@ class Calibrator:
         fir_coeff = self.create_filter()
         
         if record_signal:
-            #starts signal generator
-            self.AD2.generate_signal(dwf, hdwf, 1, 3, 515000, funcPulse)
-            #starts oscilloscope
-            dwf, hdwf = self.AD2.initialize_oscilloscope(dwf, hdwf, c_double(5), hzAcq, nSamples)
+            PORT = "COM5"        
+            BAUD = 115200
+            DURATION_S = 1.0       # capture 1 seconds (change if you want)
+            BUFFER = 200           # rolling buffer; should exceed expected samples in DURATION_S
+            YLIM = 1200            # for plotting (10-bit ADC ≈ 1023)
+                
+            # sensor = FSRStreamSensor(PORT, BAUD, BUFFER)
+            # self.FSRStreamSensor(PORT, BAUD, BUFFER)
+
+            if not self.FSRStreamSensor.connect():
+                raise RuntimeError(f"Could not open serial port {PORT} at {BAUD} baud.")
+
+            # try:
+            # Prepare buffers (optional resize)
+            self.FSRStreamSensor.initialize_stream(BUFFER)
+
+            # Let the background thread accumulate samples
+            print(f"Recording {DURATION_S:.1f}s from FSR stream…")
+            # import time; time.sleep(DURATION_S)
+
+            # Get the last DURATION_S window (time-based)
+            # t, control1 = self.FSRStreamSensor.capture_image(DURATION_S)
+            # if control1.size == 0:
+            #     raise RuntimeError("No samples captured from stream.")
+
+            # # Plot (and optionally save an image of the last 10 s)
+            # plt.ioff()
+            # fig, ax = plt.subplots(figsize=(10, 5))
+            # ax.plot(t, control1, linewidth=1.0)
+            # ax.set_xlim(0, max(DURATION_S, float(t[-1]) if t.size else DURATION_S))
+            # ax.set_ylim(0, YLIM)
+            # ax.set_xlabel("Time (s)")
+            # ax.set_ylabel("A0 ADC Value")
+            # ax.set_title(f"FSR Stream: Last {DURATION_S:.0f}s")
+            # ax.grid(True, alpha=0.3)
+            # fig.tight_layout()
+
+            # plt.show()
+
+
+
+
+            # #starts signal generator
+            # self.AD2.generate_signal(dwf, hdwf, 1, 3, 515000, funcPulse)
+            # #starts oscilloscope
+            # dwf, hdwf = self.AD2.initialize_oscilloscope(dwf, hdwf, c_double(5), hzAcq, nSamples)
             
-            #captures control data reading and plots it with peak detection reading
-            control1 = self.AD2.capture_image(hdwf, nSamples)
-            if apply_filter:
-                # Apply filter with zero phase distortion
-                control = filtfilt(fir_coeff, 1.0, control1)
-            else:
-                control = control1
-            plt.plot(control)
-            plt.show()
-            state["threshold"] = float(input("Input threshold voltage: "))
-            print("")
-            self.peak_plotting(signal_writer,signal_file,"control",["control"], control, state["threshold"])
+            # #captures control data reading and plots it with peak detection reading
+            # control1 = self.AD2.capture_image(hdwf, nSamples)
+            # if apply_filter:
+            #     # Apply filter with zero phase distortion
+            #     control = filtfilt(fir_coeff, 1.0, control1)
+            # else:
+            #     control = control1
+            # plt.plot(control)
+            # plt.show()
+            # state["threshold"] = float(input("Input threshold voltage: "))
+            # print("")
+            # self.peak_plotting(signal_writer,signal_file,"control",["control"], control, state["threshold"])
             
         #starts force plotting sequence
         win, plotz, curvez, bias_button, unbias_button = self.force_graphing()
@@ -309,29 +357,35 @@ class Calibrator:
                             #waits 5 second and opens scope data collection
                             time.sleep(5)
                             if record_signal == True:
-                                samples = self.AD2.capture_image(hdwf, nSamples)
-                                if apply_filter:
-                                    # Apply filter with zero phase distortion
-                                    samples = lfilter(fir_coeff, 1.0, samples)
-                                    try:
-                                        #plots and writes signal data
-                                        probe_id = state["probeNumber"]
-                                        x, y = self.calibration_points[probe_id - 1][0], self.calibration_points[probe_id - 1][1]
-                                        base_filename = f"waveform{probe_id}-{x}-{y}"
-                                        plt.close()
-                                        row = [state["probeNumber"]]
-                                        self.peak_plotting(signal_writer,signal_file,base_filename, [row], samples, state["threshold"])
-                                    except Exception as e:
-                                        print(f"Image save failed: {e}")
-                                else:
-                                    probe_id = state["probeNumber"]
-                                    x, y = self.calibration_points[probe_id - 1][0], self.calibration_points[probe_id - 1][1]
-                                    base_filename = f"waveform{probe_id}-{x}-{y}"
-                                    plt.close()
-                                    row = [state["probeNumber"]]
-                                    self.peak_plotting(signal_writer,signal_file,base_filename, [row], samples, state["threshold"])
-                                plt.close()
-                            time.sleep(travel_time)
+                                samples = self.FSRStreamSensor.capture_image(DURATION_S)
+
+
+
+
+
+                            #     samples = self.AD2.capture_image(hdwf, nSamples)
+                            #     if apply_filter:
+                            #         # Apply filter with zero phase distortion
+                            #         samples = lfilter(fir_coeff, 1.0, samples)
+                            #         try:
+                            #             #plots and writes signal data
+                            #             probe_id = state["probeNumber"]
+                            #             x, y = self.calibration_points[probe_id - 1][0], self.calibration_points[probe_id - 1][1]
+                            #             base_filename = f"waveform{probe_id}-{x}-{y}"
+                            #             plt.close()
+                            #             row = [state["probeNumber"]]
+                            #             self.peak_plotting(signal_writer,signal_file,base_filename, [row], samples, state["threshold"])
+                            #         except Exception as e:
+                            #             print(f"Image save failed: {e}")
+                            #     else:
+                            #         probe_id = state["probeNumber"]
+                            #         x, y = self.calibration_points[probe_id - 1][0], self.calibration_points[probe_id - 1][1]
+                            #         base_filename = f"waveform{probe_id}-{x}-{y}"
+                            #         plt.close()
+                            #         row = [state["probeNumber"]]
+                            #         self.peak_plotting(signal_writer,signal_file,base_filename, [row], samples, state["threshold"])
+                            #     plt.close()
+                            # time.sleep(travel_time)
 
                             # Update variables
                             state["x_prev"] = x
@@ -420,7 +474,8 @@ class Calibrator:
 
         # Disconnect from sensor
         if record_signal == True:
-            self.AD2.disconnect()
+            # self.AD2.disconnect()
+            self.FSRStreamSensor.disconnect()
 
         print("Sensor calibration procedure complete!")
         print("")
