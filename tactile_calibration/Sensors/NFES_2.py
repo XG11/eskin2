@@ -6,20 +6,6 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 
-# --- Qt / PyQtGraph imports ---
-try:
-    from PyQt5 import QtCore, QtWidgets  # PyQt5
-except Exception:
-    try:
-        from PySide2 import QtCore, QtWidgets  # PySide2
-    except Exception:
-        try:
-            from PySide6 import QtCore, QtWidgets  # PySide6
-        except Exception:
-            from PyQt6 import QtCore, QtWidgets  # PyQt6
-
-import pyqtgraph as pg
-
 try:
     import serial  # pyserial at runtime
 except Exception:
@@ -52,11 +38,6 @@ class FSRStreamSensor(Sensor):
         self._buf: Deque[int] = deque([0] * self.buffer_size, maxlen=self.buffer_size)
         self._ts: Deque[float] = deque([time.time()] * self.buffer_size, maxlen=self.buffer_size)
 
-        # --- NEW: full history log (optional) ---
-        self._log_vals: list[int] = []
-        self._log_ts: list[float] = []
-        self._logging_enabled = False
-
         # Concurrency / connection state
         self._lock = threading.Lock()
         self._alive = False
@@ -72,29 +53,6 @@ class FSRStreamSensor(Sensor):
         self._max_connect_attempts = 5
         self._read_timeout_s = 0.1
         self._inter_byte_timeout_s = 0.05
-
-    def start_logging(self):
-        """Begin recording all samples into an internal log."""
-        with self._lock:
-            self._log_vals = []
-            self._log_ts = []
-        self._logging_enabled = True
-
-    def stop_logging(self):
-        """Stop recording into the log."""
-        self._logging_enabled = False
-
-    def get_log(self) -> np.ndarray:
-        """Return all logged samples as a numpy array."""
-        with self._lock:
-            return np.asarray(self._log_vals, dtype=np.int16)
-
-    def get_log_with_time(self) -> tuple[np.ndarray, np.ndarray]:
-        """Return (timestamps, values) for the logged samples."""
-        with self._lock:
-            ts = np.asarray(self._log_ts, dtype=float)
-            vals = np.asarray(self._log_vals, dtype=np.int16)
-        return ts, vals
 
     # ---- Lifecycle ---------------------------------------------------------
     def connect(self) -> bool:
@@ -246,111 +204,83 @@ class FSRStreamSensor(Sensor):
 
     # ---- Live plotting -----------------------------------------------------
     def plot_live(self, fps: float = 30.0, ylim: int = 1200, invert: bool = False,
-                title: str = "", save_last10_path: Optional[str] = None) -> None:
+                  title: str = "", save_last10_path: Optional[str] = None) -> None:
         """
-        Live plot using Qt + pyqtgraph. Safe to call while a QApplication is already running.
-        If no QApplication exists, this function will create one and start the event loop.
+        Start an interactive matplotlib plot that updates at the target FPS.
+        If save_last10_path is provided, saves the last 10 seconds as a PNG
+        when the window is closed.
         """
         if not self._alive or not self._ser:
             raise RuntimeError("Sensor is not connected. Call connect() first.")
 
-        # If a Qt app already exists, use it. Otherwise create our own.
-        app = QtWidgets.QApplication.instance()
-        own_app = False
-        if app is None:
-            app = QtWidgets.QApplication([])
-            own_app = True
+        plt.ion()
+        fig, ax = plt.subplots(figsize=(10, 6))
+        x = np.arange(self.buffer_size, dtype=np.int32)
+        y = self.get_buffer()
+        (line,) = ax.plot(x, y, linewidth=1.0)
 
-        # Window & plot
-        win = QtWidgets.QMainWindow()
-        win.setWindowTitle(title or f"{self.name}: Live Plot")
-        central = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(central)
-        win.setCentralWidget(central)
+        ax.set_xlim(0, self.buffer_size - 1)
+        # ax.set_xlim(0, 200)
+        ax.set_ylim(0, ylim)
+        ax.set_xlabel("Samples (rolling buffer)")
+        ax.set_ylabel("A0 ADC Value")
+        ax.set_title(title or f"{self.name}: Live Plot (Ctrl+C or close window to exit)")
+        ax.grid(True, alpha=0.3)
 
-        plot_widget = pg.PlotWidget()
-        layout.addWidget(plot_widget)
+        interval = 1.0 / max(0.1, min(float(fps), 60.0))
+        last_update = time.time()
+        last_stats = time.time()
 
-        plot_item = plot_widget.getPlotItem()
-        plot_item.setLabel('left', 'A0 ADC Value')
-        plot_item.setLabel('bottom', 'Samples (rolling buffer)')
-        plot_item.showGrid(x=True, y=True, alpha=0.3)
-        plot_item.setYRange(0, float(ylim))
-        plot_item.setXRange(0, float(self.buffer_size - 1))
+        print("plot live...")
+        try:
+            while True:
+                if not plt.fignum_exists(fig.number):
+                    break
 
-        # Create a single curve we’ll keep updating
-        curve = plot_item.plot(np.arange(self.buffer_size, dtype=np.int32),
-                            np.zeros(self.buffer_size, dtype=np.float32),
-                            pen=pg.mkPen(width=2))
+                now = time.time()
+                if now - last_update >= interval:
+                    y = self.get_buffer()
+                    if invert:
+                        y = 1023 - y
+                    # Update line with rolling buffer
+                    if y.size < self.buffer_size:
+                        # pad if buffer not full
+                        pad = np.full(self.buffer_size - y.size, y[0] if y.size else 0, dtype=np.int16)
+                        y_plot = np.concatenate([pad, y])
+                    else:
+                        y_plot = y[-self.buffer_size:]
+                    line.set_ydata(y_plot)
 
-        # Keep refs to prevent GC
-        self._qt_plot_refs = dict(app=app, win=win, plot_widget=plot_widget,
-                                plot_item=plot_item, curve=curve)
+                    try:
+                        fig.canvas.draw_idle()
+                        fig.canvas.flush_events()
+                    except Exception:
+                        pass
 
-        # Update timer (ms)
-        ms = int(max(1, round(1000.0 / max(0.1, min(float(fps), 120.0)))))
+                    last_update = now
 
-        def on_update():
-            y = self.get_buffer()
-            if y.size == 0:
-                return
-            if invert:
-                y = 1023 - y
+                if now - last_stats >= 10.0:
+                    stats = self.get_stats()
+                    if stats["total_reads"] > 0:
+                        print(
+                            f"Stats: {stats['total_reads']} reads, "
+                            f"{stats['success_rate']:.1f}% success, "
+                            f"{stats['reconnections']} reconnections"
+                        )
+                    last_stats = now
 
-            # Ensure we always plot exactly buffer_size points (pad if not yet filled)
-            if y.size < self.buffer_size:
-                pad = np.full(self.buffer_size - y.size, y[0] if y.size else 0, dtype=np.int16)
-                y_plot = np.concatenate([pad, y])
-            else:
-                y_plot = y[-self.buffer_size:]
-
-            # Fast setData call (x is static)
-            curve.setData(y_plot)
-
-        timer = QtCore.QTimer(win)
-        timer.timeout.connect(on_update)
-        timer.start(ms)
-
-        # Optional: save last 10s on close
-        def on_close_event(event):
+                plt.pause(0.001)
+        finally:
             try:
+                plt.close(fig)
+            finally:
                 if save_last10_path:
-                    _ = self.save_window_image(10.0, save_last10_path,
-                                            ylim=ylim, invert=invert,
-                                            title=f"{self.name}: Final 10s")
-            except Exception as e:
-                print(f"[{self.name}] Could not save last 10s image: {e}")
-            # Let the window close
-            event.accept()
-
-        # Install closeEvent handler
-        old_close = win.closeEvent
-        def _close(evt):
-            on_close_event(evt)
-            # also stop timer explicitly
-            try:
-                timer.stop()
-            except Exception:
-                pass
-            # call any original close handler if it existed
-            try:
-                if callable(old_close):
-                    pass  # we've already accepted; nothing else needed
-            except Exception:
-                pass
-        win.closeEvent = _close  # type: ignore
-
-        win.resize(900, 500)
-        win.show()
-
-        # If we created the QApplication here, we own the loop, so run it.
-        if own_app:
-            app.exec_()
-        else:
-            # Caller’s Qt loop is running elsewhere (e.g., yourforce window).
-            # Nothing more to do; the timer will keep updating.
-            return
-
+                    try:
+                        path = self.save_window_image(10.0, save_last10_path, ylim=ylim, invert=invert,
+                                                      title=f"{self.name}: Final 10s")
+                        print(f"Saved last 10s image to: {path}")
+                    except Exception as e:
+                        print(f"Could not save last 10s image: {e}")
 
     # ---- Internals ---------------------------------------------------------
     def _connect_once_or_retry(self) -> bool:
@@ -462,9 +392,6 @@ class FSRStreamSensor(Sensor):
                         with self._lock:
                             self._buf.append(val)
                             self._ts.append(now)
-                            if self._logging_enabled:
-                                self._log_vals.append(val)
-                                self._log_ts.append(now)
                     else:
                         self._failed_reads += 1
                 except (ValueError, IndexError):
@@ -501,14 +428,16 @@ class FSRStreamSensor(Sensor):
 # ------------------------- CLI entry point ----------------------------------
 def main():
     import argparse
+
     p = argparse.ArgumentParser(description="FSR A0 live plotting")
-    p.add_argument("--port", default="COM6")
+    p.add_argument("--port", default="COM6",
+                   help="Serial port, e.g., COM5 (Windows), /dev/ttyACM0 (Linux), /dev/tty.usbmodem* (macOS)")
     p.add_argument("--baud", type=int, default=115200)
-    p.add_argument("--buffer", type=int, default=200)
-    p.add_argument("--ylim", type=int, default=1200)
-    p.add_argument("--fps", type=float, default=30.0)
-    p.add_argument("--invert", action="store_true")
-    p.add_argument("--save_last10", default="")
+    p.add_argument("--buffer", type=int, default=200, help="Rolling buffer length (samples)")
+    p.add_argument("--ylim", type=int, default=1200, help="Y-axis max (10-bit ADC≈1023)")
+    p.add_argument("--fps", type=float, default=30.0, help="Plot refresh rate (Hz)")
+    p.add_argument("--invert", action="store_true", help="Invert the Y-axis values")
+    p.add_argument("--save_last10", default="", help="If provided, save the last 10 seconds to this PNG when closing")
     args = p.parse_args()
 
     sensor = FSRStreamSensor(args.port, args.baud, args.buffer)
@@ -518,16 +447,22 @@ def main():
 
     try:
         sensor.initialize_stream(args.buffer)
-        sensor.plot_live(
-            fps=args.fps,
-            ylim=args.ylim,
-            invert=args.invert,
-            title=f"{sensor.name}: Live Plot",
-            save_last10_path=(args.save_last10 or None),
-        )
+        # samples = sensor.capture_image(1.0)
+        # print("Captured samples:", len(samples[1]))
+        save_path = args.save_last10 if args.save_last10 else None
+        # sensor.plot_live(fps=args.fps, ylim=args.ylim, invert=args.invert,
+        #                  title=f"{sensor.name}: Live Plot",
+        #                  save_last10_path=save_path)
+        # starts fsr reading thread
+        fsr_thread = threading.Thread(target=sensor.plot_live(fps=30, ylim=1200, invert=True,
+                        title=f"FSR: Live Plot in Thread",))
+        fsr_thread.start()
+    
     finally:
         sensor.disconnect()
+
     return 0
+
 
 if __name__ == "__main__":
     import sys as _sys
