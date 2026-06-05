@@ -1,5 +1,5 @@
 import numpy as np
-import arcade
+#import arcade
 import time
 import csv
 import sys
@@ -12,9 +12,9 @@ import nidaqmx
 from nidaqmx.constants import AcquisitionType
 from tactile_calibration import Printer, Sensor
 import threading
-from pyqtgraph.Qt import QtWidgets, QtCore
-import pyqtgraph as pg
-import dwf
+#from pyqtgraph.Qt import QtWidgets, QtCore
+#import pyqtgraph as pg
+#import dwf
 from dwfconstants import *
 from scipy.signal import butter, filtfilt, firwin, lfilter
 import warnings
@@ -106,6 +106,8 @@ class Calibrator:
 
     def force_graphing(self):
         # Reuse existing QApplication if present
+        from pyqtgraph.Qt import QtWidgets, QtCore
+        import pyqtgraph as pg
         app = QtWidgets.QApplication.instance()
         if app is None:
             app = QtWidgets.QApplication([])
@@ -315,7 +317,7 @@ class Calibrator:
         # fir_coeff = self.create_filter()
         
         if record_signal:
-            PORT = "COM6"        
+            PORT = "COM28"        
             BAUD = 115200
             DURATION_S = 0.1       # capture 1 seconds
             BUFFER = 200           # rolling buffer; should exceed expected samples in DURATION_S
@@ -550,6 +552,7 @@ class Calibrator:
             unbias_button.clicked.connect(unbias)
 
             # starts force animation
+            from pyqtgraph.Qt import QtWidgets, QtCore
             timer = QtCore.QTimer()
             timer.timeout.connect(update)
             timer.start(int(1000 * samples_per_update / rate)) # ms

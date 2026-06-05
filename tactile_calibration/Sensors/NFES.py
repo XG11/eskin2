@@ -41,7 +41,7 @@ class FSRStreamSensor(Sensor):
     Adds plot_live() for interactive visualization and save_window_image() to export PNGs.
     """
 
-    def __init__(self, port: str = "COM6", baud: int = 115200, buffer_size: int = 200):
+    def __init__(self, port: str = "COM26", baud: int = 115200, buffer_size: int = 200):
         super().__init__()
         self.name = "FSRStreamSensor"
         self.port = port
