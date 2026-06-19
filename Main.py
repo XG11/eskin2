@@ -5,7 +5,7 @@ import numpy as np
 #tc.list_com_ports()
 
 #connects to printer via COM port
-ender3 = tc.Ender3("COM28")
+ender3 = tc.Ender3("COM29")
 ender3.connect()
 
 #declares sensing method to use
