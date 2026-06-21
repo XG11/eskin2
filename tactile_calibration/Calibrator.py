@@ -282,7 +282,7 @@ class Calibrator:
         N = self.calibration_points.shape[0]
         
         # Move to offset Z and XY position
-        Speed = 5000
+        Speed = 8000
 
         self.printer.send_gcode("G1 Z" + str(self.FTSensor.z_offset + self.FTSensor.z_clearance) + " F" + str(Speed))
         self.printer.send_gcode("G1 X" + str(self.FTSensor.x_offset) + " Y" + str(self.FTSensor.y_offset) + " F" + str(Speed))
