@@ -282,8 +282,10 @@ class Calibrator:
         N = self.calibration_points.shape[0]
         
         # Move to offset Z and XY position
-        self.printer.send_gcode("G0  Z" + str(self.FTSensor.z_offset + self.FTSensor.z_clearance))
-        self.printer.send_gcode("G0 X" + str(self.FTSensor.x_offset) + " Y" + str(self.FTSensor.y_offset))
+        Speed = 5000
+
+        self.printer.send_gcode("G1 Z" + str(self.FTSensor.z_offset + self.FTSensor.z_clearance) + " F" + str(Speed))
+        self.printer.send_gcode("G1 X" + str(self.FTSensor.x_offset) + " Y" + str(self.FTSensor.y_offset) + " F" + str(Speed))
         time.sleep(5)
         
         print("Attach probe to printer head. ", end="")
@@ -396,10 +398,10 @@ class Calibrator:
                     z = self.FTSensor.z_offset - abs(self.calibration_points[i][2])
 
                     # Move to Z clearance height
-                    self.printer.send_gcode("G0 Z" + str(self.FTSensor.z_offset + self.FTSensor.z_clearance - 3.8))
+                    self.printer.send_gcode("G1 Z" + str(self.FTSensor.z_offset + self.FTSensor.z_clearance - 3.8) + " F" + str(Speed))
                     state["probed"] = False
                     # Move to desired XY locations
-                    self.printer.send_gcode("G0 X" + str(x) + " Y" + str(y))
+                    self.printer.send_gcode("G1 X" + str(x) + " Y" + str(y) + " F" + str(Speed))
                     time.sleep(0.1)
 
                     # Calculate time required to reach position
@@ -408,13 +410,13 @@ class Calibrator:
                         #if angle, calculate offset to move printer at desired depth at specified angle
                         angledz = self.FTSensor.z_offset - math.cos(math.radians(self.calibration_points[i][3]))*abs(self.calibration_points[i][2])
                         angledx = x + self.calibration_points[i][2]*math.sin(math.radians(self.calibration_points[i][3]))
-                        self.printer.send_gcode("G0 Z" + str(angledz) + " X"+ str(angledx))
+                        self.printer.send_gcode("G1 Z" + str(angledz) + " X"+ str(angledx) + " F" + str(Speed))
                     else:
                         # Move to desired Z penetration
-                        self.printer.send_gcode("G0 Z" + str(z))
+                        self.printer.send_gcode("G1 Z" + str(z) + " F" + str(Speed))
                         
                     # waits 5 second and opens scope data collection
-                    time.sleep(2.2)
+                    time.sleep(float(self.calibration_points[i][4]))
 
                     # Update variables
                     state["x_prev"] = x
@@ -463,7 +465,7 @@ class Calibrator:
                 #checks if probing is done
                 if state["probing_done"]:
                     # Move to Z clearance height    
-                    self.printer.send_gcode("G0 Z" + str(self.FTSensor.z_offset + self.FTSensor.z_clearance))
+                    self.printer.send_gcode("G1 Z" + str(self.FTSensor.z_offset + self.FTSensor.z_clearance) + " F" + str(Speed))
                     #when probing is done, stops reading from DAQ and timer
                     time.sleep(0.1)
                     task.stop()
@@ -559,7 +561,7 @@ class Calibrator:
             QtWidgets.QApplication.instance().exec()
     
             # Move to Z clearance height    
-            self.printer.send_gcode("G0 Z" + str(self.FTSensor.z_offset + self.FTSensor.z_clearance))
+            self.printer.send_gcode("G1 Z" + str(self.FTSensor.z_offset + self.FTSensor.z_clearance) + " F" + str(Speed))
 
             print("")
             task.stop()
