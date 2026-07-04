@@ -23,9 +23,9 @@ class FTSensor(Sensor):
         self.name = "FTSensor"
         self.x_offset = 0 #55 #x coordinate of corner of testbed
         self.y_offset = 0 #64.5 #y coordinate of corner of testbed
-        self.z_offset = 40 #z coordinate of corner of testbed + 1.5 mm, 66 for with bendable plate, 98.1 for without bendable plate, 101.1 with membrane
+        self.z_offset = 80 #z coordinate of corner of testbed + 1.5 mm, 66 for with bendable plate, 98.1 for without bendable plate, 101.1 with membrane
         self.z_clearance = 6 #how high it moves when moving
-        self.max_penetration = 7.5 #limit on how deep the z will move
+        self.max_penetration = 25 #limit on how deep the z will move
         self.default_calibration_file = "calib_points.csv" #x,y,z coordinates probe will move to
         
     def connect(self):
