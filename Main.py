@@ -29,6 +29,6 @@ calibrationMatrix = np.array([
 calib = tc.Calibrator(printer=ender3, sensor1=FTSensor, sensor2=AD2, sensor3=FSR)
 
 #probe method, will probe the sensor, moving to each point individually
-calib.probe(home_printer=False, record_signal=True, calibration_file_path="calibration_paths/bigprobeS0.csv", 
+calib.probe(home_printer=False, record_signal=True, calibration_file_path="calibration_paths/Sample3_5points_path.csv", 
                 calibrationMatrix=calibrationMatrix, rate=rate, samples_per_update= samples_per_update, 
                  auto_bias=True)
