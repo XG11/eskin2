@@ -13,8 +13,8 @@ FTSensor = tc.FTSensor()
 AD2 = tc.AnalogD2()
 FSR = tc.FSRStreamSensor()
 
-rate = 3000 # Hz
-samples_per_update = 500 # How many samples to read per animation frame
+rate = 1000 # Hz
+samples_per_update = 200 # How many samples to read per animation frame
 
 calibrationMatrix = np.array([
     [0.184843525290, -5.820387363434, -0.092974022031, 6.097970962624, -0.003208260983, -0.016541913152],
@@ -29,6 +29,6 @@ calibrationMatrix = np.array([
 calib = tc.Calibrator(printer=ender3, sensor1=FTSensor, sensor2=AD2, sensor3=FSR)
 
 #probe method, will probe the sensor, moving to each point individually
-calib.probe(home_printer=False, record_signal=True, calibration_file_path="calibration_paths/probe1.csv", 
+calib.probe(home_printer=False, record_signal=True, calibration_file_path="calibration_paths/bigprobeS0.csv", 
                 calibrationMatrix=calibrationMatrix, rate=rate, samples_per_update= samples_per_update, 
                  auto_bias=True)

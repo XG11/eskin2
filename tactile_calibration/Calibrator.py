@@ -474,6 +474,12 @@ class Calibrator:
                     print("Stopped DAQ. You can now pan/zoom in the plot.")
                     self.FSRStreamSensor.stop_logging()
 
+                    # ---- Final FSR plot: all samples ----
+                    fsr_all = self.FSRStreamSensor.get_log()
+                    if fsr_all.size > 0:
+                        signal_writer.writerow(["fsr_trace"] + fsr_all.tolist())
+                        signal_file.flush()
+
                     # ensures all csv data is written
                     signal_file.flush()
                     csv_file.flush()
@@ -487,6 +493,25 @@ class Calibrator:
                     final_force_curve = plotz.plot(x_vals, state["all_dataz"], pen='g')
                     plotz.enableAutoRange(x=True, y=True)
 
+                    # Save final force trace image and CSV
+                    img_dir = Path("results/sensorimages")
+                    img_dir.mkdir(parents=True, exist_ok=True)
+                    plt.figure(figsize=(8, 4))
+                    plt.plot(state["all_dataz"])
+                    plt.xlabel("Update")
+                    plt.ylabel("Force Z")
+                    plt.title("Final Force Trace")
+                    plt.tight_layout()
+                    plt.savefig(img_dir / "final_force_trace.png")
+                    plt.close()
+
+                    final_force_csv = Path(data_save_path) / "final_force_trace.csv"
+                    with open(final_force_csv, "w", newline="") as force_file:
+                        force_writer = csv.writer(force_file)
+                        force_writer.writerow(["sample", "force_z"])
+                        for idx, value in enumerate(state["all_dataz"]):
+                            force_writer.writerow([idx, value])
+
                     # ---- Final FSR plot: all samples ----
                     fsr_all = self.FSRStreamSensor.get_log()
                     if fsr_all.size > 0:
@@ -495,7 +520,18 @@ class Calibrator:
 
                         plot_fsr.clear()
                         plot_fsr.plot(x_fsr, fsr_all_plot, pen='y')
-                        plot_fsr.enableAutoRange(x=True, y=True)
+                        plot_fsr.enableAutoRange(x=True, y=False)
+                        plot_fsr.setYRange(0, 1023)
+
+                        plt.figure(figsize=(8, 4))
+                        plt.plot(fsr_all_plot)
+                        plt.xlabel("Sample")
+                        plt.ylabel("FSR ADC")
+                        plt.title("Final FSR Trace")
+                        plt.ylim(0, 1023)
+                        plt.tight_layout()
+                        plt.savefig(img_dir / "final_fsr_trace.png")
+                        plt.close()
                     return
                 
                 # --- Force (FT) update ---    
