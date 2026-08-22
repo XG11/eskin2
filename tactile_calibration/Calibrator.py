@@ -491,7 +491,9 @@ class Calibrator:
                     x_vals = np.arange(len(state["all_dataz"]))
                     plotz.clear()
                     final_force_curve = plotz.plot(x_vals, state["all_dataz"], pen='g')
-                    plotz.enableAutoRange(x=True, y=True)
+                    # Preserve original full scale: keep X autorange but fix Y range
+                    plotz.enableAutoRange(x=True, y=False)
+                    plotz.setYRange(-2.0, 2.0)
 
                     # Save final force trace image and CSV
                     img_dir = Path("results/sensorimages")
@@ -501,6 +503,8 @@ class Calibrator:
                     plt.xlabel("Update")
                     plt.ylabel("Force Z")
                     plt.title("Final Force Trace")
+                    # Keep original full scale for saved image
+                    plt.ylim(-2.0, 2.0)
                     plt.tight_layout()
                     plt.savefig(img_dir / "final_force_trace.png")
                     plt.close()
