@@ -153,6 +153,21 @@ class Calibrator:
         )
         return fir_coeff  
     
+    @staticmethod
+    def build_time_axis(num_samples, sample_rate_hz):
+        """Return a time axis in seconds from a sample count and sampling rate."""
+        num_samples = int(num_samples)
+        if num_samples <= 0 or not sample_rate_hz:
+            return np.array([], dtype=float)
+        return np.arange(num_samples, dtype=float) / float(sample_rate_hz)
+
+    @staticmethod
+    def get_safe_read_chunk(total_samples, max_chunk):
+        """Return a conservative chunk size for large DAQ reads."""
+        total_samples = max(1, int(total_samples))
+        max_chunk = max(1, int(max_chunk))
+        return max(1, min(max_chunk, int(total_samples * 0.05)))
+
     def peak_plotting(self, signal_writer, signal_file, file_name, row_name, voltages = [], threshold = 2):
         #plots and saves signal data with peak detection
         peak_indices = [i for i, v in enumerate(voltages) if v >= threshold]
@@ -309,11 +324,13 @@ class Calibrator:
             "all_datax" : [],
             "all_datay" : [],
             "all_dataz" : [],
+            "all_dataz_time" : [],
             "scope_data" : [],
             "threshold":  .015,
             "probeNumber": 0,
             "all_fsr": [], # store all FSR samples over time
             "fsr_prev_len": 0, # how many samples we've already copied from the buffer
+            "time_reference": time.time(),
         }
         
         #creates fir filter coefficient for filter
@@ -487,10 +504,12 @@ class Calibrator:
                     signal_file.close()
 
                     # Removes previous live plot and replaces with plot with full data for analysis
-                    # plots final force data
-                    x_vals = np.arange(len(state["all_dataz"]))
+                    # plots final force data using elapsed time for the x-axis
+                    ft_times = np.asarray(state["all_dataz_time"], dtype=float)
+                    ft_values = np.asarray(state["all_dataz"], dtype=float)
                     plotz.clear()
-                    final_force_curve = plotz.plot(x_vals, state["all_dataz"], pen='g')
+                    final_force_curve = plotz.plot(ft_times, ft_values, pen='g')
+                    plotz.setLabel('bottom', 'Time (s)')
                     # Preserve original full scale: keep X autorange but fix Y range
                     plotz.enableAutoRange(x=True, y=False)
                     plotz.setYRange(-2.0, 2.0)
@@ -499,8 +518,8 @@ class Calibrator:
                     img_dir = Path("results/sensorimages")
                     img_dir.mkdir(parents=True, exist_ok=True)
                     plt.figure(figsize=(8, 4))
-                    plt.plot(state["all_dataz"])
-                    plt.xlabel("Update")
+                    plt.plot(ft_times, ft_values)
+                    plt.xlabel("Time (s)")
                     plt.ylabel("Force Z")
                     plt.title("Final Force Trace")
                     # Keep original full scale for saved image
@@ -512,24 +531,29 @@ class Calibrator:
                     final_force_csv = Path(data_save_path) / "final_force_trace.csv"
                     with open(final_force_csv, "w", newline="") as force_file:
                         force_writer = csv.writer(force_file)
-                        force_writer.writerow(["sample", "force_z"])
-                        for idx, value in enumerate(state["all_dataz"]):
-                            force_writer.writerow([idx, value])
+                        force_writer.writerow(["time_s", "force_z"])
+                        for t_s, value in zip(ft_times, ft_values):
+                            force_writer.writerow([t_s, value])
 
                     # ---- Final FSR plot: all samples ----
                     fsr_all = self.FSRStreamSensor.get_log()
                     if fsr_all.size > 0:
                         fsr_all_plot = 1023 - fsr_all  # invert to match live
-                        x_fsr = np.arange(fsr_all_plot.size)
+                        fsr_ts, _ = self.FSRStreamSensor.get_log_with_time()
+                        if fsr_ts.size > 0:
+                            fsr_t = fsr_ts - state["time_reference"]
+                        else:
+                            fsr_t = self.build_time_axis(fsr_all_plot.size, max(1.0, rate / samples_per_update))
 
                         plot_fsr.clear()
-                        plot_fsr.plot(x_fsr, fsr_all_plot, pen='y')
+                        plot_fsr.plot(fsr_t, fsr_all_plot, pen='y')
+                        plot_fsr.setLabel('bottom', 'Time (s)')
                         plot_fsr.enableAutoRange(x=True, y=False)
                         plot_fsr.setYRange(0, 1023)
 
                         plt.figure(figsize=(8, 4))
-                        plt.plot(fsr_all_plot)
-                        plt.xlabel("Sample")
+                        plt.plot(fsr_t, fsr_all_plot)
+                        plt.xlabel("Time (s)")
                         plt.ylabel("FSR ADC")
                         plt.title("Final FSR Trace")
                         plt.ylim(0, 1023)
@@ -549,14 +573,17 @@ class Calibrator:
 
                 # only plots for z
                 valuez = np.mean(FT_final[2, :])
+                sample_time = time.time()
                 state["all_dataz"].append(valuez)
+                state["all_dataz_time"].append(sample_time - state["time_reference"])
                 Zbuffer[:-1] = Zbuffer[1:]
                 Zbuffer[-1] = valuez
                 state["ptr"] += 1
                 curvez.setData(Zbuffer)
                 curvez.setPos((state["ptr"] - windowWidth), 0)
-                # write to csv file
-                csv_writer.writerow([(state["ptr"]/rate)*samples_per_update, FT_final[0][0], FT_final[1][0], FT_final[2][0], FT_final[3][0], FT_final[4][0], FT_final[5][0]])
+                # write to csv file with actual elapsed time in seconds
+                elapsed_s = sample_time - state["time_reference"]
+                csv_writer.writerow([elapsed_s, FT_final[0][0], FT_final[1][0], FT_final[2][0], FT_final[3][0], FT_final[4][0], FT_final[5][0]])
                 
                 # --- FSR update (same timer) ---
                 y = self.FSRStreamSensor.get_buffer()  # rolling buffer (length <= buffer_size)
